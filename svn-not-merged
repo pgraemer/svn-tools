@@ -1,0 +1,103 @@
+#!/usr/bin/env perl
+use 5.12.0;
+use XML::Simple;
+use Text::Wrap;
+use Text::ASCIITable;
+use String::Util qw(trim);
+use Getopt::Long qw(GetOptionsFromArray);
+use Pod::Usage;
+use Term::ANSIColor;
+use Encode;
+
+# term size
+my ($wchar, $hchar, $wpixels, $hpixels) = GetTerminalSize();
+$Text::Wrap::columns = $wchar-30;
+
+my %opts = (
+    search => '',
+    author => '',
+    filter => [],
+
+);
+GetOptionsFromArray(\@ARGV,
+    's|search=s'  => \$opts{search},
+    'a|author=s'  => \$opts{author},
+    'h|help|?'    => \$opts{help},
+    'f|filter=s@' => \$opts{filter},
+);
+
+$opts{target} = @ARGV ? pop @ARGV : '';
+$opts{source} = @ARGV ? pop @ARGV : '';
+
+pod2usage(1) if $opts{help};
+
+say 'collecting revisions...';
+my @revs = `svn mergeinfo --show-revs eligible "$opts{source}" "$opts{target}"`;
+chomp(@revs);
+my $rev_string = join(" -r ", @revs);
+$rev_string =~ s{\*}{}xmsg;
+say 'collecting log information...';
+my $log = `svn log --xml -r $rev_string $opts{source}`;
+my $xs = XML::Simple->new();
+my $xml = $xs->XMLin(encode_utf8($log), KeyAttr => { logentry => 'revision' }, ForceArray => [ 'logentry' ]);
+my $revs = $xml->{logentry};
+
+say 'building...';
+my $table = Text::ASCIITable->new({ headingText => 'not in productive '.$opts{target} . ' ('.scalar(@revs).')'});
+$table->setOptions('allowANSI',1);
+$table->setCols('revision', 'author', 'message');
+
+my %autor_color;
+my @colors = qw(yellow bright_red green bright_blue magenta bright_cyan);
+$autor_color{$ENV{SVN_USER}} = shift(@colors) if $ENV{SVN_USER};
+
+my @matching_revs;
+REVISION:
+for my $rev (sort keys %$revs) {
+    my $entry = $revs->{$rev};
+    next REVISION if ($opts{author} && $opts{author} ne $entry->{author});
+    next REVISION if ($opts{search} && $entry->{msg} !~ m{ $opts{search} }xms);
+    for my $filter (@{$opts{filter}}) {
+        next REVISION if ($entry->{msg} =~ m{ \Q$filter\E }xms);
+    }
+    $entry->{msg} =~ s/\n*//sig;
+    $autor_color{$entry->{author}} = shift(@colors) // 'white' unless exists $autor_color{$entry->{author}};
+    my $author = colored([ $autor_color{$entry->{author}} ], $entry->{author});
+    $table->addRow($rev, $author , trim(wrap('','',$entry->{msg})));
+    push @matching_revs, $rev;
+}
+
+# get the svn merge command for the matching revs
+my $cmd = "svn-merge-cmd ". join(",", @matching_revs) ." ". $opts{source} . " .";
+my $svn_merge = `$cmd`;
+
+# make a pager
+my $pager = $ENV{PAGER} || "less -R";
+open (my $PIPE, "| $pager") or print $table; ## no critic
+say $PIPE $table;
+say $PIPE "";
+say $PIPE $svn_merge;
+close $PIPE;
+
+=pod
+
+=head1 NAME
+
+svn-not-merged
+
+=head1 SYNOPSIS
+
+svn-not-merged [options] [path1 ...] [path2 ...]
+
+ Options:
+   -help            brief help message
+   -search          displays only revisions matching searchterm
+   -author          displays only revisions from author
+   -filter          filters revs my matching commit msg
+
+=head1 DESCRIPTION
+
+B<This program> will look for eligible revisions between path1 and path2
+the output will be a nice formatted table
+
+=cut

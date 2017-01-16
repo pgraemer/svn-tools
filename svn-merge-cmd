@@ -1,0 +1,14 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use utf8;
+
+my %opts = (
+    target      => @ARGV ? pop(@ARGV) : '',
+    source      => @ARGV ? pop(@ARGV) : '',
+    revs        => \@ARGV || qw(),
+);
+
+my @revs = scalar @{$opts{revs}} == 1 ? split(/,/, $opts{revs}->[0]) : @{$opts{revs}};
+my $rev_str = '-c ' . join(',', sort(@revs));
+printf('svn merge %s %s %s', $rev_str, $opts{source}, $opts{target});
