@@ -7,6 +7,7 @@ use String::Util qw(trim);
 use Getopt::Long qw(GetOptionsFromArray);
 use Pod::Usage;
 use Term::ANSIColor;
+use Term::ReadKey;
 use Encode;
 
 # term size
@@ -93,7 +94,7 @@ svn-not-merged [options] [path1 ...] [path2 ...]
    -help            brief help message
    -search          displays only revisions matching searchterm
    -author          displays only revisions from author
-   -filter          filters revs my matching commit msg
+   -filter          filter revisions by their commit message
 
 =head1 DESCRIPTION
 
